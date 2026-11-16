@@ -2,6 +2,9 @@
 
 package org.polyfrost.polyplus.client.gui.lobbyshell
 
+import org.polyfrost.polyplus.client.gui.vanillamenu.EditMenuChooser
+import org.polyfrost.polyplus.client.gui.vanillamenu.EditableBlock
+import org.polyfrost.polyplus.client.gui.vanillamenu.MenuEditorBar
 import org.polyfrost.oneconfig.api.ui.v1.a11y.Motion
 import org.polyfrost.oneconfig.api.ui.v1.components.PlayerHead
 import org.polyfrost.oneconfig.api.ui.v1.ExperimentalOneConfigUiApi
@@ -277,7 +280,9 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
             LobbyPage.Home -> {
                 Box(Modifier.fillMaxSize().avatarTaps(lobby, notch))
                 SceneTags(feed, root, notch)
-                LobbyCornerCard(lobby, Modifier.align(Alignment.TopStart).padding(start = LobbyLayout.Margin, top = LobbyLayout.Top))
+                EditableBlock("lobby", "corner", "News card", Modifier.align(Alignment.TopStart).padding(start = LobbyLayout.Margin, top = LobbyLayout.Top)) {
+                    LobbyCornerCard(lobby, Modifier)
+                }
             }
             LobbyPage.Wardrobe -> WardrobePage(onBack = { lobby.show(LobbyPage.Home) }, onMarketplace = { lobby.show(LobbyPage.Marketplace) })
             LobbyPage.Multiplayer -> MultiplayerPage(lobby)
@@ -295,19 +300,21 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
         } }
         var barStart by remember { mutableFloatStateOf(Float.NaN) }
         Box(Modifier.fillMaxSize().a11yRegion(A11yRegion.Scene)) { SceneControl(lobby) { barStart } }
-        LobbyDarkChrome { Navbar(lobby, screen) }
+        EditableBlock("lobby", "navbar", "Top bar") { LobbyDarkChrome { Navbar(lobby, screen) } }
         val chatShown = lobby.page != LobbyPage.Social && !LobbyPage.Social.hidden
         val chatWidth by animateDpAsState(
             if (chatShown) LobbyLayout.ChatWidth else 0.dp,
             if (Motion.reduced) snap() else spring(visibilityThreshold = Dp.VisibilityThreshold),
         )
-        Row(
+        EditableBlock(
+            "lobby",
+            "bar",
+            "Player bar",
             Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = LobbyLayout.Margin, end = LobbyLayout.BarEnd, bottom = LobbyLayout.Margin)
                 .a11yRegion(A11yRegion.Bar),
-            verticalAlignment = Alignment.Bottom,
-        ) {
+        ) { Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.widthIn(max = chatWidth), verticalArrangement = Arrangement.spacedBy(LobbyLayout.Gap)) {
                 if (lobby.page == LobbyPage.Home) LinkedModButton(Modifier)
                 if (chatShown || chatWidth > 0.dp) ChatDock(lobby, chatWidth)
@@ -318,22 +325,23 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
                 Spacer(Modifier.width(LobbyLayout.Gap))
                 SceneButton(lobby)
             }
+        } }
+        EditableBlock("lobby", "play", "Play", Modifier.align(Alignment.BottomEnd).padding(end = LobbyLayout.Margin, bottom = LobbyLayout.Margin)) {
+            PlayUnit(
+                lobby,
+                Modifier
+                    .width(LobbyLayout.UnitWidth)
+                    .tourAnchor(lobby.anchors, TourAnchor.Play)
+                    .a11yRegion(A11yRegion.Play),
+            )
         }
-        PlayUnit(
-            lobby,
-            Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = LobbyLayout.Margin, bottom = LobbyLayout.Margin)
-                .width(LobbyLayout.UnitWidth)
-                .tourAnchor(lobby.anchors, TourAnchor.Play)
-                .a11yRegion(A11yRegion.Play),
-        )
         if (!PolyPlusMainMenuConfig.hideMainMenuFooter) LobbyDarkChrome { Footer(screen) }
         if (lobby.page != LobbyPage.Social) {
             SocialToastHost(Modifier.align(Alignment.TopCenter).padding(top = LobbyLayout.Top))
         }
         PlayTogetherBanner(Modifier.align(Alignment.TopCenter).padding(top = LobbyLayout.Top + LobbyLayout.Gap, start = LobbyLayout.Margin, end = LobbyLayout.Margin).a11yRegion(A11yRegion.Banner))
         PlayTogetherHooks(lobby)
+        MenuEditorBar("lobby")
         lobby.hostWorldId?.let { worldId -> HostWorldDialog(worldId, screen) { lobby.hostWorldId = null } }
         lobby.editing?.let { edit ->
             ServerEditDialog(
@@ -612,6 +620,10 @@ private fun MoreMenu(lobby: LobbyShell, screen: Screen, onClose: () -> Unit) {
         MenuItem("Switch to vanilla main menu", themedIcon(SOCIAL_ASSETS + "minecraft-block.svg"), null, MenuItemSize.Regular, false, false, true, null, Modifier, null) {
             onClose()
             MainMenuReplacement.switchToVanilla()
+        }
+        MenuItem("Edit main menu", themedIcon(SOCIAL_ASSETS + "edit-02.svg"), null, MenuItemSize.Regular, false, false, true, null, Modifier, null) {
+            onClose()
+            EditMenuChooser.open()
         }
         MenuItem("Replay tour", themedIcon(SOCIAL_ASSETS + "play-circle.svg"), null, MenuItemSize.Regular, false, false, true, null, Modifier, null) {
             onClose()

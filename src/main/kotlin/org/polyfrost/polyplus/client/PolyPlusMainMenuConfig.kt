@@ -132,6 +132,15 @@ object PolyPlusMainMenuConfig : Config(
     var vanillaMenuButtons = true
 
     @JvmStatic
+    @Dropdown(
+        title = "Vanilla Menu Layout",
+        description = "Preset for the vanilla menu. Pick one, then move pieces around with Edit Main Menu.",
+        options = ["Centered", "Essential style", "OneClient style"],
+        subcategory = "Vanilla Style",
+    )
+    var vanillaMenuLayout: VanillaMenuLayout = VanillaMenuLayout.CENTERED
+
+    @JvmStatic
     @Switch(
         title = "Top Right Dropdown",
         description = "Put the lobby, menu, notification and theme buttons in one dropdown. Turn off to show them all in a row.",
@@ -170,6 +179,14 @@ object PolyPlusMainMenuConfig : Config(
         subcategory = "Vanilla Style",
     )
     var multiplayerTabs = true
+
+    // moved menu pieces from the menu editor: scope/id=x,y;...
+    @JvmStatic @Include
+    var menuLayoutOffsets = ""
+
+    // pieces hidden with the menu editor: scope/id,...
+    @JvmStatic @Include
+    var menuHidden = ""
 
     // newest first, one address per line, at most 3
     @JvmStatic @Include
@@ -311,4 +328,10 @@ enum class MainMenuChoice {
     LOBBY,
     POLYPLUS,
     VANILLA,
+}
+
+enum class VanillaMenuLayout {
+    CENTERED,
+    SIDES,
+    ONECLIENT,
 }
