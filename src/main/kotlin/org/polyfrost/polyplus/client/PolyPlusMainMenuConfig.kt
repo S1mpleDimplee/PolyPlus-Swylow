@@ -116,6 +116,66 @@ object PolyPlusMainMenuConfig : Config(
     var hideMainMenuFooter = false
 
     @JvmStatic
+    @Switch(
+        title = "Intro Animation",
+        description = "Play the OneClient intro when the game starts, into the lobby, the PolyPlus menu or the vanilla menu.",
+        subcategory = "Vanilla Style",
+    )
+    var introAnimation = true
+
+    @JvmStatic
+    @Switch(
+        title = "OneClient Buttons In Vanilla Menu",
+        description = "Add Social, Wardrobe, Host World, Accounts, Quickplay and Mods buttons to the vanilla main menu.",
+        subcategory = "Vanilla Style",
+    )
+    var vanillaMenuButtons = true
+
+    @JvmStatic
+    @Switch(
+        title = "Top Right Dropdown",
+        description = "Put the lobby, menu, notification and theme buttons in one dropdown. Turn off to show them all in a row.",
+        subcategory = "Vanilla Style",
+    )
+    var vanillaMenuDropdown = true
+
+    @JvmStatic
+    @Switch(
+        title = "Dark Vanilla Buttons",
+        description = "Use the dark button pack in vanilla menus. Follows the light/dark theme button.",
+        subcategory = "Vanilla Style",
+    )
+    var vanillaDarkTheme = false
+
+    @JvmStatic
+    @Switch(
+        title = "Vanilla Singleplayer And Multiplayer",
+        description = "Open the vanilla style world and server lists, also from the lobby and the PolyPlus menu.",
+        subcategory = "Vanilla Style",
+    )
+    var vanillaListScreens = false
+
+    @JvmStatic
+    @Switch(
+        title = "World Version Sections",
+        description = "Split the world list into worlds for this version and worlds from other versions, and confirm before opening another version.",
+        subcategory = "Vanilla Style",
+    )
+    var worldVersionSections = true
+
+    @JvmStatic
+    @Switch(
+        title = "Multiplayer Tabs",
+        description = "Show Servers, Friends and Discover tabs at the top of the vanilla multiplayer screen.",
+        subcategory = "Vanilla Style",
+    )
+    var multiplayerTabs = true
+
+    // newest first, one address per line, at most 3
+    @JvmStatic @Include
+    var recentDirectConnects = ""
+
+    @JvmStatic
     @Dropdown(
         title = "Main Menu FPS Limit",
         description = "Choose how the lobby frame cap is selected.",

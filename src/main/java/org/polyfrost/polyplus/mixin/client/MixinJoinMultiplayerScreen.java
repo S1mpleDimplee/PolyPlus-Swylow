@@ -2,6 +2,11 @@ package org.polyfrost.polyplus.mixin.client;
 
 //? if > 1.8.9 {
 import net.minecraft.client.gui.components.Button;
+import org.polyfrost.polyplus.client.gui.vanillamenu.RecentDirectConnects;
+import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.client.gui.screens.Screen;
+import org.spongepowered.asm.mixin.Final;
+import org.polyfrost.polyplus.client.gui.vanillamenu.JoinMultiplayerScreenParent;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.gui.screens.multiplayer.ServerSelectionList;
 import org.polyfrost.polyplus.client.featured.FeaturedServerListAccess;
@@ -14,7 +19,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(JoinMultiplayerScreen.class)
-public abstract class MixinJoinMultiplayerScreen {
+public abstract class MixinJoinMultiplayerScreen implements JoinMultiplayerScreenParent {
+    @Shadow @Final private Screen lastScreen;
+    @Shadow private ServerData editingServer;
     @Shadow protected ServerSelectionList serverSelectionList;
     @Shadow private Button editButton;
     //? if >= 26.3 {
@@ -37,9 +44,23 @@ public abstract class MixinJoinMultiplayerScreen {
         if (FeaturedServers.revision() != polyplus$featuredRevision) polyplus$refreshFeaturedServers();
     }
 
+    @Override
+    public Screen polyplus$lastScreen() {
+        return lastScreen;
+    }
+
+    @Inject(method = "directJoinCallback", at = @At("HEAD"))
+    private void polyplus$rememberDirectConnect(boolean result, CallbackInfo ci) {
+        if (result && editingServer != null) RecentDirectConnects.record(editingServer.ip);
+    }
+
     @Inject(method = "deleteCallback", at = @At("HEAD"))
     private void polyplus$demoteDeletedFeaturedServer(boolean result, CallbackInfo ci) {
         if (!result || serverSelectionList == null) return;
+        var recentRow = FeaturedServerRowRegistry.get(serverSelectionList.getSelected());
+        if (recentRow != null && recentRow.server() == null && !recentRow.header()) {
+            RecentDirectConnects.remove(recentRow.data().ip);
+        }
         if (serverSelectionList.getSelected() instanceof ServerSelectionList.OnlineServerEntry entry) {
             FeaturedServers.dismissMultiplayerByAddress(entry.getServerData().ip);
         }

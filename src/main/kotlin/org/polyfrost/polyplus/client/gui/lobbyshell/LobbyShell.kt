@@ -26,6 +26,7 @@ import org.polyfrost.oneconfig.api.ui.v1.keybind.TextInputFocus
 import org.polyfrost.polyplus.client.PolyPlusLobbyConfig
 import org.polyfrost.polyplus.client.PolyPlusMainMenuConfig
 import org.polyfrost.polyplus.client.featured.FeaturedServers
+import org.polyfrost.polyplus.client.gui.vanillamenu.VanillaListScreens
 import org.polyfrost.polyplus.client.gui.AccountActions
 import org.polyfrost.polyplus.client.gui.lobbysocial.SocialChatLink
 import org.polyfrost.polyplus.client.gui.lobbysocial.SocialEscape
@@ -164,6 +165,11 @@ internal class LobbyShell(private val screen: Screen, firstPage: LobbyPage) : So
     fun skipIntro(): Boolean = (!setup || LobbyScene.overlayAlpha <= 0f) && !LobbyWardrobe.open && LobbyScene.skipIntro()
 
     fun show(target: LobbyPage) {
+        if (VanillaListScreens.open(target, screen)) {
+            // coming back must land on Home, or the lobby would bounce straight into the list again
+            if (page == target) page = LobbyPage.Home
+            return
+        }
         val shown = if (target.hidden) LobbyPage.Home else target
         if (shown != page) {
             AnimationActivity.hold(0.6)

@@ -18,6 +18,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.HashMap;
+import org.polyfrost.polyplus.client.gui.vanillamenu.RecentDirectConnects;
+import java.util.ArrayList;
+import java.util.Set;
 import java.util.List;
 
 @Mixin(ServerSelectionList.class)
@@ -99,6 +102,7 @@ public abstract class MixinServerSelectionList implements FeaturedServerListAcce
         for (var entry : onlineServers) add(entry);
         add(lanHeader);
         for (var entry : networkServers) add(entry);
+        polyplus$addRecentDirectConnects(savedByAddress.keySet());
 
         boolean hasUnsavedSponsored = sponsored.stream().anyMatch(server ->
             !savedByAddress.containsKey(FeaturedServerModelsKt.normalizeServerAddress(server.getAddress()))
@@ -120,6 +124,26 @@ public abstract class MixinServerSelectionList implements FeaturedServerListAcce
         var entry = OnlineServerEntryInvoker.polyplus$create(self, screen, data);
         FeaturedServerRowRegistry.register(entry, self, screen, data, server, promoted, false);
         add(entry);
+    }
+
+    // the last few Direct Connect addresses, under their own label, unless they're saved servers anyway
+    private void polyplus$addRecentDirectConnects(Set<String> saved) {
+        var recent = new ArrayList<String>();
+        for (var address : RecentDirectConnects.addresses()) {
+            if (!saved.contains(FeaturedServerModelsKt.normalizeServerAddress(address))) recent.add(address);
+        }
+        if (recent.isEmpty()) return;
+        var self = (ServerSelectionList) (Object) this;
+        var headerData = new ServerData("Recent direct connects", "0.0.0.0", ServerData.Type.OTHER);
+        var header = OnlineServerEntryInvoker.polyplus$create(self, screen, headerData);
+        FeaturedServerRowRegistry.register(header, self, screen, headerData, null, false, true);
+        add(header, true);
+        for (var address : recent) {
+            var data = new ServerData(address, address, ServerData.Type.OTHER);
+            var entry = OnlineServerEntryInvoker.polyplus$create(self, screen, data);
+            FeaturedServerRowRegistry.register(entry, self, screen, data, null, false, false);
+            add(entry);
+        }
     }
 
     private void addHeader() {

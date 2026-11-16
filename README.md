@@ -1,3 +1,23 @@
+# PolyPlus, Swylow edition
+
+A fork of [PolyPlus](https://github.com/Polyfrost/PolyPlus) 2.0.11 (the OneClient companion mod) with a vanilla style main menu. Built for Minecraft 26.2 on Fabric. Download: https://swylow.simplemcnetwork.net
+
+What's different:
+
+- **Intro animation** into the vanilla and PolyPlus menus too (the logo rises while the screen opens like a curtain), not only into the lobby.
+- **Vanilla main menu with OneClient buttons**: Social, Wardrobe and Host World under Realms; Accounts, Quickplay, Mods and Essential (when installed) next to vanilla's small icon buttons.
+- **Top right dropdown** with Lobby, PolyPlus menu, Notifications, Light/Dark theme and Settings. Turn it off to show them all in a row.
+- **Dark theme for vanilla buttons**, switched together with the OneConfig theme.
+- **Singleplayer**: worlds for your version and worlds from other versions in their own sections, plus a confirm screen before opening a world from another version (vanilla list and lobby page).
+- **Multiplayer**: Servers, Friends and Discover tabs. Servers adds a "Recent direct connects" section (last 3). Friends shows worlds your friends are hosting for you. Discover lists OneClient's server catalog to join or add.
+- Option to use the vanilla style Singleplayer and Multiplayer screens from the lobby too.
+
+All of it can be turned on and off in OneConfig: Main Menu (OneClient) > Vanilla Style.
+
+Build: `./gradlew :26.2-fabric:build` (JDK 25), jar in `versions/26.2-fabric/build/libs/`.
+
+---
+
 # PolyPlus
 
 [![Modrinth downloads](https://img.shields.io/modrinth/dt/Iw9mZi4a?style=flat&logo=modrinth&label=Modrinth&color=1bd96a)](https://modrinth.com/mod/polyplus)

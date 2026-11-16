@@ -59,7 +59,9 @@ public final class FeaturedServerVanillaRenderer {
     ) {
         row.bounds(x, y, width, height);
         if (row.header()) {
-            var label = Component.translatable("polyplus.featured.sponsored");
+            var label = row.server() == null && !"Sponsored".equals(row.data().name)
+                ? Component.literal(row.data().name)
+                : Component.translatable("polyplus.featured.sponsored");
             var font = Minecraft.getInstance().font;
             int labelWidth = font.width(label);
             int labelX = x + (width - labelWidth) / 2;
@@ -87,6 +89,7 @@ public final class FeaturedServerVanillaRenderer {
             *///?}
             return;
         }
+        if (row.server() == null) return; // a recent direct connect row, drawn like any saved server
         drawOutline(graphics, row.server().getOutlineStyle(), x, y, width, height);
     }
 
@@ -100,7 +103,7 @@ public final class FeaturedServerVanillaRenderer {
         int mouseX,
         int mouseY
     ) {
-        if (row.header()) return;
+        if (row.header() || row.server() == null) return;
         if (row.promoted()) {
             int iconX = row.x() + row.width() - CONTENT_INSET - STATUS_ICON_RIGHT_GAP;
             drawStar(

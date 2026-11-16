@@ -61,6 +61,12 @@
     "client.MixinJoinMultiplayerScreen",
     //? if >= 26.3
     "client.MixinWorldOptionsScreen",
+    //? if >= 26.1
+    "client.MixinWorldSelectionList",
+    //? if >= 26.1
+    "client.MixinWorldListEntry",
+    //? if >= 26.1
+    "client.MixinAbstractButtonDark",
     //? if = 1.8.9
     //"client.MixinInventoryMenuScreen",
     //? if = 1.8.9
