@@ -132,6 +132,14 @@ object PolyPlusMainMenuConfig : Config(
     var vanillaMenuButtons = true
 
     @JvmStatic
+    @Switch(
+        title = "Hide Essential's Title Screen Buttons",
+        description = "With Essential installed, show only our menu on the title screen. Essential's Social, Wardrobe, Pictures and Settings can be added as buttons with Edit Main Menu.",
+        subcategory = "Vanilla Style",
+    )
+    var hideEssentialTitleMenu = true
+
+    @JvmStatic
     @Dropdown(
         title = "Vanilla Menu Layout",
         description = "Preset for the vanilla menu. Pick one, then move pieces around with Edit Main Menu.",
@@ -180,11 +188,11 @@ object PolyPlusMainMenuConfig : Config(
     )
     var multiplayerTabs = true
 
-    // moved menu pieces from the menu editor: scope/id=x,y;...
+    // the old menu editor's moved pieces (scope/id=x,y;...), moved to config/polyplus/menu-layout.json on first start
     @JvmStatic @Include
     var menuLayoutOffsets = ""
 
-    // pieces hidden with the menu editor: scope/id,...
+    // the old menu editor's hidden pieces (scope/id,...), moved to menu-layout.json too
     @JvmStatic @Include
     var menuHidden = ""
 

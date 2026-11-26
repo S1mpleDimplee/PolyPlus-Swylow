@@ -4,6 +4,7 @@ package org.polyfrost.polyplus.client.gui.lobbyshell
 
 import org.polyfrost.polyplus.client.gui.vanillamenu.EditMenuChooser
 import org.polyfrost.polyplus.client.gui.vanillamenu.EditableBlock
+import org.polyfrost.polyplus.client.gui.vanillamenu.MenuLayoutStore
 import org.polyfrost.polyplus.client.gui.vanillamenu.MenuEditorBar
 import org.polyfrost.oneconfig.api.ui.v1.a11y.Motion
 import org.polyfrost.oneconfig.api.ui.v1.components.PlayerHead
@@ -71,6 +72,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.coerceAtMost
 import androidx.compose.ui.unit.dp
@@ -300,7 +302,12 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
         } }
         var barStart by remember { mutableFloatStateOf(Float.NaN) }
         Box(Modifier.fillMaxSize().a11yRegion(A11yRegion.Scene)) { SceneControl(lobby) { barStart } }
-        EditableBlock("lobby", "navbar", "Top bar") { LobbyDarkChrome { Navbar(lobby, screen) } }
+        // the top bar's pieces move one by one now (group "navbar"); a whole bar moved with the old editor stays moved
+        val oldBar = MenuLayoutStore.element("lobby", "navbar")
+        val density = LocalDensity.current
+        Box(Modifier.offset { with(density) { IntOffset((oldBar?.x ?: 0f).dp.roundToPx(), (oldBar?.y ?: 0f).dp.roundToPx()) } }) {
+            LobbyDarkChrome { Navbar(lobby, screen) }
+        }
         val chatShown = lobby.page != LobbyPage.Social && !LobbyPage.Social.hidden
         val chatWidth by animateDpAsState(
             if (chatShown) LobbyLayout.ChatWidth else 0.dp,
@@ -418,11 +425,15 @@ private fun NavbarRow(lobby: LobbyShell, screen: Screen, unread: Boolean) {
             .padding(horizontal = LobbyLayout.Margin),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Wordmark(
-            Modifier.width(NAV_SIDE.dp),
-            mark = Modifier.onGloballyPositioned { StartupOverlay.navMark = StartupOverlay.place(it) },
-            word = Modifier.onGloballyPositioned { StartupOverlay.navWord = StartupOverlay.place(it) },
-        )
+        Box(Modifier.width(NAV_SIDE.dp)) {
+            EditableBlock("lobby", "nav.logo", "Logo", group = NAV_GROUP) {
+                Wordmark(
+                    Modifier,
+                    mark = Modifier.onGloballyPositioned { StartupOverlay.navMark = StartupOverlay.place(it) },
+                    word = Modifier.onGloballyPositioned { StartupOverlay.navWord = StartupOverlay.place(it) },
+                )
+            }
+        }
         Row(
             Modifier.weight(1f).a11yRegion(A11yRegion.Nav),
             horizontalArrangement = Arrangement.spacedBy(NAV_TAB_GAP, Alignment.CenterHorizontally),
@@ -434,23 +445,26 @@ private fun NavbarRow(lobby: LobbyShell, screen: Screen, unread: Boolean) {
                     LobbyPage.Social -> Modifier.tourAnchor(lobby.anchors, TourAnchor.Social)
                     else -> Modifier
                 }
-                NavTab(
-                    tab.label,
-                    tab.activeOn(lobby.page),
-                    anchor,
-                    unread = (tab.page == LobbyPage.Social && unread) || (tab.page == LobbyPage.News && NewsFeed.unread),
-                    underline = if (tab.page == LobbyPage.Home) Modifier.onGloballyPositioned { StartupOverlay.navLine = StartupOverlay.place(it) } else Modifier,
-                    padding = NAV_TAB_PADDING,
-                ) { lobby.show(tab.page) }
+                EditableBlock("lobby", "nav.${tab.page.name.lowercase()}", tab.label, group = NAV_GROUP) {
+                    NavTab(
+                        tab.label,
+                        tab.activeOn(lobby.page),
+                        anchor,
+                        unread = (tab.page == LobbyPage.Social && unread) || (tab.page == LobbyPage.News && NewsFeed.unread),
+                        underline = if (tab.page == LobbyPage.Home) Modifier.onGloballyPositioned { StartupOverlay.navLine = StartupOverlay.place(it) } else Modifier,
+                        padding = NAV_TAB_PADDING,
+                    ) { lobby.show(tab.page) }
+                }
             }
         }
         Box(Modifier.width(NAV_SIDE.dp), contentAlignment = Alignment.CenterEnd) {
-            key(lobby.profileVersion) { ProfileCluster(lobby, screen) }
+            key(lobby.profileVersion) { EditableBlock("lobby", "nav.tools", "Account and tools", group = NAV_GROUP) { ProfileCluster(lobby, screen) } }
         }
     }
 }
 
 private const val NAV_SIDE = 490
+private const val NAV_GROUP = "navbar"
 private val NAV_TAB_GAP = 4.dp
 private val NAV_TAB_PADDING = 12.dp
 private const val INVITE_PENDING = "pending"

@@ -3,10 +3,11 @@
 package org.polyfrost.polyplus.client.gui.vanillamenu
 
 //? if >= 26.1 {
-import androidx.compose.ui.geometry.Offset
+import com.mojang.blaze3d.platform.cursor.CursorTypes
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
 import net.fabricmc.fabric.api.event.Event
-import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.components.AbstractWidget
@@ -43,22 +44,55 @@ import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 /**
- * The vanilla title screen with OneClient's buttons in vanilla style, in one of two layouts:
- * - Centered: Social, Wardrobe and Host World under Realms, Accounts and OneConfig beside vanilla's icon buttons,
- *   Quickplay as a panel on the left.
- * - Essential style: your skin on the left with Wardrobe under it, the OneClient buttons and Quickplay on the right,
- *   accounts at the top left.
- * Both have a bell and a settings dropdown at the top right, slide in after the intro, and every piece can be
- * moved with the menu editor.
+ * One piece of the vanilla menu: a widget with an id, where the template put it, and the widgets that follow it
+ * (Quickplay's rows, the top right dropdown). The player's changes are a [MenuElement] in [MenuLayoutStore].
+ */
+internal class MenuPiece(
+    val id: String,
+    val label: String,
+    val widget: AbstractWidget,
+    val type: String,
+    val templateGroup: String?,
+    /** The key the old editor stored this piece's offset under. */
+    val legacyKey: String?,
+) {
+    var extras: List<AbstractWidget> = emptyList()
+    var layoutExtras: (MenuPiece) -> Unit = {}
+    var tx = 0
+    var ty = 0
+    var tw = 0
+    var th = 0
+    var order = 0
+
+    val builtin: Boolean get() = type == MenuElement.TYPE_BUILTIN
+    val data: MenuElement? get() = MenuLayoutStore.element(MenuLayoutStore.VANILLA, id)
+    val scale: Float get() = data?.scale ?: 1f
+    val z: Int get() = data?.z ?: order
+    val shown: Boolean get() = data?.visible ?: true
+    val group: String? get() = (data?.group ?: templateGroup)?.takeIf { it.isNotEmpty() }
+
+    // the size it takes on screen, with its scale
+    val left: Int get() = widget.x
+    val top: Int get() = widget.y
+    val width: Int get() = (widget.width * scale).roundToInt()
+    val height: Int get() = (widget.height * scale).roundToInt()
+    val right: Int get() = left + width
+    val bottom: Int get() = top + height
+}
+
+/**
+ * The vanilla title screen with OneClient's buttons in vanilla style. A template (Centered, Essential style or
+ * OneClient style) places everything, then the player's layout moves, sizes, scales, groups and hides pieces and adds
+ * their own (images, text, sliders, buttons, panels). The menu editor ([VanillaMenuEditor]) changes that layout.
  */
 object VanillaTitleMenu {
     private val LOGGER = LogManager.getLogger("PolyPlus/VanillaTitleMenu")
     private val LATE_PHASE: Identifier = Identifier.fromNamespaceAndPath("polyplus", "vanilla_title_menu")
 
-    private const val ROW = 24
-    private const val SIZE = 20
+    internal const val ROW = 24
+    internal const val SIZE = 20
     private const val GAP = 4
-    private const val MARGIN = 4
+    internal const val MARGIN = 4
     private const val COLUMN = 200
     private const val DROPDOWN_WIDTH = 124
     private const val LOGO_BOTTOM = 80
@@ -66,43 +100,42 @@ object VanillaTitleMenu {
     private const val INTRO_ROW_DELAY = 0.07f
     private const val INTRO_SLIDE_SECONDS = 0.5f
     private const val INTRO_DISTANCE = 30
+    private const val SPIN_DEGREES_PER_PIXEL = 0.8f
+    private const val HIDDEN_ALPHA = 0.3f
 
     /** The intro only plays the first time the title screen opens after the game starts. */
     private var introPending = true
 
-    private class State(val scope: String) {
-        val keys = LinkedHashMap<AbstractWidget, String>()
-        val base = HashMap<AbstractWidget, Pair<Int, Int>>()
+    internal class State(val screen: TitleScreen) {
+        val pieces = LinkedHashMap<String, MenuPiece>()
+        var preview: PreviewSlot? = null
         var dropdown: List<Button> = emptyList()
         var dropdownToggle: AbstractWidget? = null
-        var editBar: List<AbstractWidget> = emptyList()
-        var preview: PreviewSlot? = null
-        var dragging: String? = null
-        var dragFrom = Offset.Zero
-        var pressX = 0.0
-        var pressY = 0.0
         var introStart = 0L
         var introRows: Map<AbstractWidget, Int> = emptyMap()
+        var spinning = false
+        var spinLastX = 0.0
+        val editing: Boolean get() = MenuLayoutEditor.isEditing(MenuLayoutStore.VANILLA)
     }
 
     private val states = WeakHashMap<Screen, State>()
+
+    internal fun state(screen: Screen): State? = states[screen]
 
     fun register() {
         ScreenEvents.AFTER_INIT.addPhaseOrdering(Event.DEFAULT_PHASE, LATE_PHASE)
         ScreenEvents.AFTER_INIT.register(LATE_PHASE) { _, screen, _, _ ->
             if (screen !is TitleScreen || MainMenuReplacement.replacesTitleScreen()) return@register
             runCatching { build(screen) }.onFailure { LOGGER.error("Couldn't add the OneClient buttons to the title screen", it) }
+            ScreenKeyboardEvents.allowKeyPress(screen).register { s, event -> !(states[s]?.let { VanillaMenuEditor.keyPressed(it, event) } ?: false) }
+            ScreenMouseEvents.allowMouseScroll(screen).register { s, x, y, _, amount -> !(states[s]?.let { VanillaMenuEditor.scrolled(it, x, y, amount) } ?: false) }
         }
     }
 
     @JvmStatic
-    fun scope(): String = when (PolyPlusMainMenuConfig.vanillaMenuLayout) {
-        VanillaMenuLayout.CENTERED -> "vanilla-centered"
-        VanillaMenuLayout.SIDES -> "vanilla-sides"
-        VanillaMenuLayout.ONECLIENT -> "vanilla-oneclient"
-    }
+    fun scope(): String = MenuLayoutStore.VANILLA
 
-    private fun presetName(layout: VanillaMenuLayout): String = when (layout) {
+    internal fun presetName(layout: VanillaMenuLayout): String = when (layout) {
         VanillaMenuLayout.CENTERED -> "Centered"
         VanillaMenuLayout.SIDES -> "Essential style"
         VanillaMenuLayout.ONECLIENT -> "OneClient style"
@@ -111,15 +144,23 @@ object VanillaTitleMenu {
     private fun key(widget: AbstractWidget): String =
         (widget.message.contents as? TranslatableContents)?.key ?: widget.message.string.ifEmpty { widget.javaClass.simpleName }
 
+    /** Rebuilds the screen from the layout, after an undo, a template or an added piece. */
+    internal fun rebuild(screen: Screen) {
+        screen.resize(screen.width, screen.height)
+    }
+
     // ---------------------------------------------------------------- layout
 
     private fun build(screen: TitleScreen) {
         val access = screen as ScreenAccessor
         val vanilla = screen.children().filterIsInstance<AbstractWidget>()
-        val state = State(scope())
+        val state = State(screen)
         states[screen] = state
-        // vanilla's own pieces can be moved too, each on its own
-        vanilla.filter { it.y < screen.height - 10 }.forEach { state.keys[it] = key(it) }
+        // vanilla's own pieces are pieces too, each on its own
+        vanilla.filter { it.y < screen.height - 10 }.forEach { widget ->
+            val key = key(widget)
+            piece(state, widget, uniqueId(state, key), label(widget, key), legacyKey = key)
+        }
 
         if (PolyPlusMainMenuConfig.vanillaMenuButtons) {
             val built = when (PolyPlusMainMenuConfig.vanillaMenuLayout) {
@@ -130,23 +171,55 @@ object VanillaTitleMenu {
             if (!built) buildCentered(screen, access, vanilla, state)
         }
         addTopRight(screen, access, state)
-        if (MenuLayoutEditor.isEditing(state.scope)) addEditBar(screen, access, state)
 
-        for ((widget, _) in state.keys) state.base[widget] = widget.x to widget.y
-        applyOffsets(state)
-        // hidden pieces stay visible in the editor, so they can be shown again
-        if (!MenuLayoutEditor.isEditing(state.scope)) {
-            for ((widget, key) in state.keys) if (MenuLayoutEditor.isHidden(state.scope, key)) widget.visible = false
+        // where the template put everything, before the player's layout moves it
+        for (piece in state.pieces.values) {
+            piece.tx = piece.widget.x
+            piece.ty = piece.widget.y
+            piece.tw = piece.widget.width
+            piece.th = piece.widget.height
         }
+        addPlayerPieces(screen, access, state)
+        state.pieces.values.forEachIndexed { index, piece -> piece.order = index * 10 }
+        migrateLegacy(state)
+        applyLayout(state)
 
-        if (introPending && PolyPlusMainMenuConfig.introAnimation && !MenuLayoutEditor.isEditing(state.scope)) {
+        if (introPending && PolyPlusMainMenuConfig.introAnimation && !state.editing) {
             introPending = false
-            val rows = state.keys.keys.map { it.y }.distinct().sorted()
-            state.introRows = state.keys.keys.associateWith { rows.indexOf(it.y) }
+            val widgets = state.pieces.values.filter { it.shown }.map { it.widget }
+            val rows = widgets.map { it.y }.distinct().sorted()
+            state.introRows = widgets.associateWith { rows.indexOf(it.y) }
             state.introStart = -1L
             applyIntro(state, 0f)
         }
         introPending = false
+    }
+
+    private fun label(widget: AbstractWidget, key: String): String = when {
+        widget.message.string.isNotBlank() -> widget.message.string
+        else -> key
+    }
+
+    private fun uniqueId(state: State, base: String): String {
+        if (base !in state.pieces) return base
+        var n = 2
+        while ("$base#$n" in state.pieces) n++
+        return "$base#$n"
+    }
+
+    internal fun piece(
+        state: State,
+        widget: AbstractWidget,
+        id: String,
+        label: String,
+        type: String = MenuElement.TYPE_BUILTIN,
+        group: String? = null,
+        legacyKey: String? = id,
+    ): MenuPiece = MenuPiece(id, label, widget, type, group, legacyKey).also { state.pieces[id] = it }
+
+    private fun add(access: ScreenAccessor, state: State, widget: AbstractWidget, id: String, label: String, group: String? = null, legacyKey: String? = id): MenuPiece {
+        access.polyplusAddRenderableWidget(widget)
+        return piece(state, widget, id, label, group = group, legacyKey = legacyKey)
     }
 
     private fun find(widgets: List<AbstractWidget>, key: String) = widgets.firstOrNull { (it.message.contents as? TranslatableContents)?.key == key }
@@ -162,16 +235,16 @@ object VanillaTitleMenu {
 
         val third = (COLUMN - 2 * GAP) / 3
         val row = listOf(
-            "social" to textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) },
-            "wardrobe" to textButton("Wardrobe", "Cosmetics and your Minecraft capes") { PolyPlusOneConfigIntegration.openCosmetics() },
-            "host" to textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) },
+            Triple("social", "Social", textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) }),
+            Triple("wardrobe", "Wardrobe", textButton("Wardrobe", "Cosmetics and your Minecraft capes") { PolyPlusOneConfigIntegration.openCosmetics() }),
+            Triple("host", "Host World", textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) }),
         )
-        row.forEachIndexed { index, (id, button) ->
+        row.forEachIndexed { index, (id, label, button) ->
             // the last one takes the rounding so the row ends exactly where the 200 wide buttons end
             val x = left + index * (third + GAP)
             val w = if (index == row.lastIndex) left + COLUMN - x else third
             button.setRectangle(w, SIZE, x, rowY)
-            add(access, state, button, "oc-$id")
+            add(access, state, button, "oc-$id", label)
         }
 
         // vanilla's small icon buttons share a row with OneClient's, spread over exactly the 200 wide column
@@ -181,16 +254,15 @@ object VanillaTitleMenu {
         val panelWidth = minOf(150, leftSpace - 8)
         val quickplayPanel = panelWidth >= 80
         val ours = buildList {
-            add("oc-accounts" to iconButton("accounts", "Accounts") { MenuPanelScreen.open(MenuPanelScreen.Panel.Accounts) })
-            add("oc-oneconfig" to iconButton("mods", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() })
-            if (FabricLoader.getInstance().isModLoaded("essential")) add("oc-essential" to iconButton("essential", "Essential") { EssentialMenu.open(screen) })
+            add(Triple("oc-accounts", "Accounts", iconButton("accounts", "Accounts") { MenuPanelScreen.open(MenuPanelScreen.Panel.Accounts) }))
+            add(Triple("oc-oneconfig", "OneConfig", iconButton("mods", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() }))
         }
-        ours.forEach { (id, widget) -> add(access, state, widget, id) }
-        val icons = ours.take(1).map { it.second } + vanillaIcons + ours.drop(1).map { it.second }
+        ours.forEach { (id, label, widget) -> add(access, state, widget, id, label) }
+        val icons = ours.take(1).map { it.third } + vanillaIcons + ours.drop(1).map { it.third }
         spread(icons, left, COLUMN, iconRowY)
 
         // with the extra row the buttons may reach the copyright line, so the block moves up toward the logo
-        val block = (vanilla.filter { it.y >= singleplayer.y && it.y < screen.height - 10 } + row.map { it.second } + ours.map { it.second }).distinct()
+        val block = (vanilla.filter { it.y >= singleplayer.y && it.y < screen.height - 10 } + row.map { it.third } + ours.map { it.third }).distinct()
         val overflow = block.maxOf { it.y + it.height } - (screen.height - 14)
         val lift = minOf(overflow, singleplayer.y - LOGO_BOTTOM)
         if (lift > 0) block.forEach { it.y -= lift }
@@ -216,33 +288,27 @@ object VanillaTitleMenu {
         val buttons = 4
         val top = (singleplayer.y - 40).coerceAtLeast(MARGIN + SIZE + GAP)
             .coerceAtMost(screen.height - 14 - previewHeight - buttons * (SIZE + 2))
-        val preview = PreviewSlot(rightX, top, columnWidth, previewHeight)
-        state.preview = preview
-        access.polyplusAddRenderableWidget(preview)
-        state.keys[preview] = "player"
+        addPreview(access, state, rightX, top, columnWidth, previewHeight, group = "player")
         val font = Minecraft.getInstance().font
-        val name = ClientPlatform.localPlayerName() + "  \u25BE"
+        val name = ClientPlatform.localPlayerName() + "  ▾"
         val column = listOf(
-            "player" to Button.builder(Component.literal(font.plainSubstrByWidth(name, columnWidth - 8))) { MenuPanelScreen.open(MenuPanelScreen.Panel.Accounts) }
-                .tooltip(Tooltip.create(Component.literal("Switch account"))).build(),
-            "player" to textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) },
-            "player" to textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) },
-            "player" to textButton("Wardrobe", "Cosmetics and your Minecraft capes") { PolyPlusOneConfigIntegration.openCosmetics() },
+            Triple("player.account", "Account", Button.builder(Component.literal(font.plainSubstrByWidth(name, columnWidth - 8))) { MenuPanelScreen.open(MenuPanelScreen.Panel.Accounts) }
+                .tooltip(Tooltip.create(Component.literal("Switch account"))).build()),
+            Triple("player.host", "Host World", textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) }),
+            Triple("player.social", "Social", textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) }),
+            Triple("player.wardrobe", "Wardrobe", textButton("Wardrobe", "Cosmetics and your Minecraft capes") { PolyPlusOneConfigIntegration.openCosmetics() }),
         )
-        column.forEachIndexed { index, (key, button) ->
+        column.forEachIndexed { index, (id, label, button) ->
             button.setRectangle(columnWidth, SIZE, rightX, top + previewHeight + 2 + index * (SIZE + 2))
-            add(access, state, button, key)
+            add(access, state, button, id, label, group = "player", legacyKey = "player")
         }
 
-        // OneConfig (and Essential) next to vanilla's small icon buttons
+        // OneConfig next to vanilla's small icon buttons
         val iconRowY = (find(vanilla, "menu.options")?.y ?: (singleplayer.y + 4 * ROW)) - ROW
         val vanillaIcons = vanilla.filter { it.y == iconRowY && it.width == SIZE && it.height == SIZE }
-        val ours = buildList {
-            add(iconButton("mods", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() })
-            if (FabricLoader.getInstance().isModLoaded("essential")) add(iconButton("essential", "Essential") { EssentialMenu.open(screen) })
-        }
-        ours.forEachIndexed { index, widget -> add(access, state, widget, if (index == 0) "oc-oneconfig" else "oc-essential") }
-        spread(vanillaIcons + ours, center - COLUMN / 2, COLUMN, iconRowY)
+        val oneconfig = iconButton("mods", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() }
+        add(access, state, oneconfig, "oc-oneconfig", "OneConfig")
+        spread(vanillaIcons + oneconfig, center - COLUMN / 2, COLUMN, iconRowY)
         return true
     }
 
@@ -256,20 +322,16 @@ object VanillaTitleMenu {
         val rightX = center + COLUMN / 2 + (sideSpace - columnWidth) / 2
 
         val buttons = listOf(
-            "host" to textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) },
-            "social" to textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) },
-            "oneconfig" to textButton("OneConfig", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() },
-        ) + if (FabricLoader.getInstance().isModLoaded("essential")) {
-            listOf("essential" to textButton("Essential", "Essential's menu") { EssentialMenu.open(screen) })
-        } else {
-            emptyList()
-        }
+            Triple("host", "Host World", textButton("Host World", "Host a singleplayer world for your friends") { MenuPanelScreen.open(MenuPanelScreen.Panel.HostWorld) }),
+            Triple("social", "Social", textButton("Social", "Friends, chats and parties") { SocialOverlay.open(screen) }),
+            Triple("oneconfig", "OneConfig", textButton("OneConfig", "OneConfig mod settings") { PolyPlusOneConfigIntegration.openMods() }),
+        )
         // the column moves up when the buttons and Quickplay wouldn't fit above the copyright line
         val quickplayHeight = SIZE + 2 + QuickplayPanel.entries().size * (QuickplayPanel.ROW_HEIGHT + 2)
         val columnTop = minOf(singleplayer.y, screen.height - 14 - buttons.size * ROW - 6 - quickplayHeight).coerceAtLeast(MARGIN + SIZE + GAP)
-        buttons.forEachIndexed { index, (id, button) ->
+        buttons.forEachIndexed { index, (id, label, button) ->
             button.setRectangle(columnWidth, SIZE, rightX, columnTop + index * ROW)
-            add(access, state, button, "oc-$id")
+            add(access, state, button, "oc-$id", label)
         }
         addQuickplay(screen, access, state, rightX, columnTop + buttons.size * ROW + 6, columnWidth)
 
@@ -278,13 +340,10 @@ object VanillaTitleMenu {
         val previewHeight = (previewWidth / PREVIEW_RATIO).roundToInt().coerceAtMost(screen.height - singleplayer.y - 40)
         val previewX = (sideSpace - previewWidth) / 2
         val previewY = singleplayer.y - 16
-        val preview = PreviewSlot(previewX, previewY, previewWidth, previewHeight)
-        state.preview = preview
-        access.polyplusAddRenderableWidget(preview)
-        state.keys[preview] = "player"
+        addPreview(access, state, previewX, previewY, previewWidth, previewHeight, group = "player")
         val wardrobe = textButton("Wardrobe", "Cosmetics and your Minecraft capes") { PolyPlusOneConfigIntegration.openCosmetics() }
         wardrobe.setRectangle(minOf(previewWidth, 100), SIZE, previewX + (previewWidth - minOf(previewWidth, 100)) / 2, previewY + previewHeight + 4)
-        add(access, state, wardrobe, "player")
+        add(access, state, wardrobe, "player.wardrobe", "Wardrobe", group = "player", legacyKey = "player")
 
         // accounts at the top left, like Essential's account switcher
         val font = Minecraft.getInstance().font
@@ -292,24 +351,34 @@ object VanillaTitleMenu {
         val accounts = Button.builder(Component.literal(name)) { MenuPanelScreen.open(MenuPanelScreen.Panel.Accounts) }
             .tooltip(Tooltip.create(Component.literal("Switch account")))
             .bounds(MARGIN, MARGIN, font.width(name) + 16, SIZE).build()
-        add(access, state, accounts, "oc-accounts")
+        add(access, state, accounts, "oc-accounts", "Account")
         return true
     }
 
-    private fun addQuickplay(screen: TitleScreen, access: ScreenAccessor, state: State, x: Int, y: Int, width: Int) {
+    private fun addPreview(access: ScreenAccessor, state: State, x: Int, y: Int, width: Int, height: Int, group: String?, type: String = MenuElement.TYPE_BUILTIN, id: String = "player.preview"): MenuPiece {
+        val preview = PreviewSlot(x, y, width, height)
+        state.preview = preview
+        access.polyplusAddRenderableWidget(preview)
+        return piece(state, preview, id, "Player preview", type = type, group = group, legacyKey = "player")
+    }
+
+    internal fun addQuickplay(screen: Screen, access: ScreenAccessor, state: State, x: Int, y: Int, width: Int, type: String = MenuElement.TYPE_BUILTIN, id: String = "quickplay"): MenuPiece? {
         val entries = QuickplayPanel.entries()
-        if (entries.isEmpty()) return
-        lateinit var rows: List<AbstractWidget>
-        val header = QuickplayPanel.header(width) { rows.forEach { it.visible = QuickplayPanel.expanded } }
+        if (entries.isEmpty()) return null
+        lateinit var piece: MenuPiece
+        val header = QuickplayPanel.header(width) { showExtras(state, piece) }
         header.setPosition(x, y)
-        add(access, state, header, "quickplay")
-        rows = entries.mapIndexed { index, server ->
-            QuickplayPanel.Row(screen, server, width).also {
-                it.setPosition(x, y + SIZE + 2 + index * (QuickplayPanel.ROW_HEIGHT + 2))
-                it.visible = QuickplayPanel.expanded
-                add(access, state, it, "quickplay")
+        access.polyplusAddRenderableWidget(header)
+        piece = piece(state, header, id, "Quickplay", type = type)
+        piece.extras = entries.map { server -> QuickplayPanel.Row(screen, server, width).also { access.polyplusAddRenderableWidget(it) } }
+        piece.layoutExtras = { p ->
+            val scale = p.scale
+            p.extras.forEachIndexed { index, row ->
+                row.setRectangle(p.widget.width, QuickplayPanel.ROW_HEIGHT, p.widget.x, p.widget.y + ((SIZE + 2 + index * (QuickplayPanel.ROW_HEIGHT + 2)) * scale).roundToInt())
+                ElementTransforms.set(row, scale)
             }
         }
+        return piece
     }
 
     private fun addTopRight(screen: TitleScreen, access: ScreenAccessor, state: State) {
@@ -324,63 +393,62 @@ object VanillaTitleMenu {
         val toggleX = screen.width - SIZE - MARGIN
         val bell = iconButton("bell", "Notifications") { MenuPanelScreen.open(MenuPanelScreen.Panel.Notifications) }
         if (PolyPlusMainMenuConfig.vanillaMenuDropdown) {
-            val items = entries.mapIndexed { index, (label, action) ->
+            val items = entries.map { (label, action) ->
                 lateinit var button: Button
                 button = Button.builder(label()) {
                     action()
                     button.message = label()
-                }.bounds(screen.width - DROPDOWN_WIDTH - MARGIN, MARGIN + SIZE + GAP + index * SIZE, DROPDOWN_WIDTH, SIZE).build()
+                }.size(DROPDOWN_WIDTH, SIZE).build()
                 button.visible = false
-                add(access, state, button, "topright")
+                access.polyplusAddRenderableWidget(button)
                 button
             }
             state.dropdown = items
             val toggle = iconButton("sliders", "OneClient", tooltip = false) { items.forEach { it.visible = !it.visible } }
             toggle.setPosition(toggleX, MARGIN)
-            add(access, state, toggle, "topright")
-            state.dropdownToggle = toggle
             bell.setPosition(toggleX - SIZE - GAP, MARGIN)
-            add(access, state, bell, "topright")
+            add(access, state, bell, "topright.bell", "Notifications", group = "topright", legacyKey = "topright")
+            val menu = add(access, state, toggle, "topright.menu", "OneClient menu", group = "topright", legacyKey = "topright")
+            state.dropdownToggle = toggle
+            menu.extras = items
+            // the dropdown opens under its button, toward the middle of the screen
+            menu.layoutExtras = { p ->
+                val opensLeft = p.widget.x + DROPDOWN_WIDTH > screen.width
+                val x = if (opensLeft) p.right - DROPDOWN_WIDTH else p.left
+                val below = p.bottom + GAP + items.size * SIZE <= screen.height
+                items.forEachIndexed { index, item ->
+                    item.setPosition(x, if (below) p.bottom + GAP + index * SIZE else p.top - GAP - (items.size - index) * SIZE)
+                }
+            }
         } else {
             // all of them in a row along the top, right aligned
             val font = Minecraft.getInstance().font
             var right = screen.width - MARGIN
-            for ((label, action) in entries.reversed()) {
+            entries.reversed().forEachIndexed { index, (label, action) ->
                 val width = font.width(label()) + 12
                 lateinit var button: Button
                 button = Button.builder(label()) {
                     action()
                     button.message = label()
                 }.bounds(right - width, MARGIN, width, SIZE).build()
-                add(access, state, button, "topright")
+                add(access, state, button, "topright.${entries.size - 1 - index}", label().string, group = "topright", legacyKey = "topright")
                 right -= width + 2
             }
         }
     }
 
-    private fun addEditBar(screen: TitleScreen, access: ScreenAccessor, state: State) {
-        val current = PolyPlusMainMenuConfig.vanillaMenuLayout
-        val barLeft = screen.width / 2 - (130 + 60 + 60 + 2 * GAP) / 2
-        val preset = Button.builder(Component.literal("Preset: " + presetName(current))) {
-            val next = VanillaMenuLayout.entries[(current.ordinal + 1) % VanillaMenuLayout.entries.size]
-            PolyPlusMainMenuConfig.vanillaMenuLayout = next
-            PolyPlusMainMenuConfig.save()
-            MenuLayoutEditor.start(scope())
-            ClientPlatform.setScreen(TitleScreen())
-        }.tooltip(Tooltip.create(Component.literal("Switch to another premade layout, then move things from there"))).bounds(barLeft, MARGIN, 130, SIZE).build()
-        access.polyplusAddRenderableWidget(preset)
-        val done = Button.builder(Component.literal("Done")) { MenuLayoutEditor.stop(); ClientPlatform.setScreen(TitleScreen()) }
-            .bounds(barLeft + 130 + 60 + 2 * GAP, MARGIN, 60, SIZE).build()
-        val reset = Button.builder(Component.literal("Reset")) { MenuLayoutEditor.reset(state.scope); ClientPlatform.setScreen(TitleScreen()) }
-            .bounds(barLeft + 130 + GAP, MARGIN, 60, SIZE).build()
-        access.polyplusAddRenderableWidget(reset)
-        access.polyplusAddRenderableWidget(done)
-        state.editBar = listOf(preset, reset, done)
-    }
-
-    private fun add(access: ScreenAccessor, state: State, widget: AbstractWidget, key: String) {
-        access.polyplusAddRenderableWidget(widget)
-        state.keys[widget] = key
+    /** The pieces the player added in the editor. */
+    private fun addPlayerPieces(screen: TitleScreen, access: ScreenAccessor, state: State) {
+        for (element in MenuLayoutStore.added(MenuLayoutStore.VANILLA).sortedBy { it.z ?: 0 }) {
+            val piece = runCatching { MenuAddedElements.create(screen, access, state, element) }
+                .onFailure { LOGGER.error("Couldn't add menu piece {} ({})", element.id, element.type, it) }.getOrNull() ?: continue
+            val w = element.w?.roundToInt() ?: piece.widget.width
+            val h = element.h?.roundToInt() ?: piece.widget.height
+            piece.tx = piece.widget.x
+            piece.ty = piece.widget.y
+            piece.tw = w
+            piece.th = h
+        }
     }
 
     private fun spread(icons: List<AbstractWidget>, left: Int, width: Int, y: Int) {
@@ -396,38 +464,145 @@ object VanillaTitleMenu {
         icons.forEachIndexed { index, icon -> icon.setPosition((start + index * used).roundToInt(), y) }
     }
 
-    // ---------------------------------------------------------------- moving pieces
+    // ---------------------------------------------------------------- the player's layout
 
-    private fun applyOffsets(state: State) {
-        for ((widget, key) in state.keys) {
-            val (x, y) = state.base[widget] ?: continue
-            val offset = MenuLayoutEditor.offset(state.scope, key)
-            widget.setPosition(x + offset.x.roundToInt(), y + offset.y.roundToInt())
+    private val ANCHORS = mapOf(
+        "top-left" to (0f to 0f), "top" to (0.5f to 0f), "top-right" to (1f to 0f),
+        "left" to (0f to 0.5f), "center" to (0.5f to 0.5f), "right" to (1f to 0.5f),
+        "bottom-left" to (0f to 1f), "bottom" to (0.5f to 1f), "bottom-right" to (1f to 1f),
+    )
+
+    private fun anchorOf(name: String?): Pair<Float, Float> = ANCHORS[name] ?: (0f to 0f)
+
+    /** The nearest of the nine anchors, by which third of the screen the piece's middle is in. */
+    private fun nearestAnchor(screen: Screen, x: Int, y: Int, w: Int, h: Int): String {
+        val cx = (x + w / 2f) / screen.width
+        val cy = (y + h / 2f) / screen.height
+        val col = if (cx < 1f / 3) 0f else if (cx > 2f / 3) 1f else 0.5f
+        val row = if (cy < 1f / 3) 0f else if (cy > 2f / 3) 1f else 0.5f
+        return ANCHORS.entries.first { it.value == col to row }.key
+    }
+
+    /** Stores where a piece is now (its top left corner and unscaled size), anchored to the nearest screen point. */
+    internal fun store(state: State, piece: MenuPiece, x: Int, y: Int, w: Int = piece.widget.width, h: Int = piece.widget.height) {
+        val element = MenuLayoutStore.edit(MenuLayoutStore.VANILLA, piece.id)
+        if (!piece.builtin) element.type = piece.type
+        val scale = element.scale
+        val sw = (w * scale).roundToInt()
+        val sh = (h * scale).roundToInt()
+        val anchor = nearestAnchor(state.screen, x, y, sw, sh)
+        val (ax, ay) = anchorOf(anchor)
+        element.anchor = anchor
+        element.x = x + ax * sw - ax * state.screen.width
+        element.y = y + ay * sh - ay * state.screen.height
+        element.w = if (piece.builtin && w == piece.tw) null else w.toFloat()
+        element.h = if (piece.builtin && h == piece.th) null else h.toFloat()
+    }
+
+    /** Puts every piece where the template and the player's layout say, with its size, scale, opacity and order. */
+    internal fun applyLayout(state: State) {
+        val screen = state.screen
+        val editing = state.editing
+        for (piece in state.pieces.values) {
+            val element = piece.data
+            val scale = (element?.scale ?: 1f).coerceIn(0.25f, 4f)
+            val w = element?.w?.roundToInt()?.coerceAtLeast(2) ?: piece.tw
+            val h = element?.h?.roundToInt()?.coerceAtLeast(2) ?: piece.th
+            var x = piece.tx
+            var y = piece.ty
+            if (element?.anchor != null) {
+                val (ax, ay) = anchorOf(element.anchor)
+                x = (ax * screen.width + element.x - ax * w * scale).roundToInt()
+                y = (ay * screen.height + element.y - ay * h * scale).roundToInt()
+            }
+            piece.widget.setRectangle(w, h, x, y)
+            ElementTransforms.set(piece.widget, scale)
+            val shown = element?.visible ?: true
+            piece.widget.visible = shown || editing
+            piece.widget.setAlpha((element?.opacity ?: 1f).coerceIn(0f, 1f) * if (shown) 1f else HIDDEN_ALPHA)
+            piece.layoutExtras(piece)
+            showExtras(state, piece)
+        }
+        sortByZ(state)
+    }
+
+    private fun showExtras(state: State, piece: MenuPiece) {
+        when (piece.id) {
+            // the dropdown only opens from its button, never in the editor
+            "topright.menu" -> if (state.editing || !piece.shown) piece.extras.forEach { it.visible = false }
+            else -> {
+                val open = piece.widget is Button && piece.extras.isNotEmpty() && QuickplayPanel.expanded
+                piece.extras.forEach {
+                    it.visible = open && (piece.shown || state.editing)
+                    it.setAlpha(piece.widget.alpha)
+                }
+            }
         }
     }
+
+    /** Draw order (and which piece gets a click first) follows each piece's z. */
+    private fun sortByZ(state: State) {
+        val access = state.screen as ScreenAccessor
+        val ordered = state.pieces.values.sortedBy { it.z }.flatMap { listOf(it.widget) + it.extras }
+        val ours: Set<Any> = ordered.toHashSet()
+        val renderables = access.polyplusRenderables()
+        val renderSlots = renderables.indices.filter { renderables[it] in ours }
+        val renderOrder = ordered.filter { it in renderables }
+        if (renderSlots.size == renderOrder.size) renderSlots.forEachIndexed { index, slot -> renderables[slot] = renderOrder[index] }
+        // the one drawn on top gets the click
+        val children = access.polyplusChildren()
+        val childSlots = children.indices.filter { children[it] in ours }
+        val childOrder = ordered.reversed().filter { it in children }
+        if (childSlots.size == childOrder.size) childSlots.forEachIndexed { index, slot -> children[slot] = childOrder[index] }
+    }
+
+    private fun migrateLegacy(state: State) {
+        val layout = MenuLayoutStore.scope(MenuLayoutStore.VANILLA)
+        if (layout.legacyOffsets.isEmpty() && layout.legacyHidden.isEmpty()) return
+        for (piece in state.pieces.values) {
+            val key = piece.legacyKey ?: continue
+            if (MenuLayoutStore.element(MenuLayoutStore.VANILLA, piece.id)?.anchor != null) continue
+            layout.legacyOffsets[key]?.let { offset ->
+                store(state, piece, piece.tx + offset[0].roundToInt(), piece.ty + offset[1].roundToInt(), piece.tw, piece.th)
+            }
+            if (key in layout.legacyHidden) MenuLayoutStore.edit(MenuLayoutStore.VANILLA, piece.id).visible = false
+        }
+        layout.legacyOffsets.clear()
+        layout.legacyHidden.clear()
+        MenuLayoutStore.save()
+    }
+
+    // ---------------------------------------------------------------- intro
 
     private fun applyIntro(state: State, t: Float) {
         var done = true
         for ((widget, row) in state.introRows) {
-            val (x, y) = state.base[widget] ?: continue
-            val offset = MenuLayoutEditor.offset(state.scope, state.keys[widget] ?: continue)
+            val piece = state.pieces.values.firstOrNull { it.widget === widget } ?: continue
             val p = easeOut(((t - row * INTRO_ROW_DELAY) / INTRO_SLIDE_SECONDS).coerceIn(0f, 1f))
             if (p < 1f) done = false
-            widget.setPosition(x + offset.x.roundToInt(), y + offset.y.roundToInt() + ((1f - p) * INTRO_DISTANCE).roundToInt())
-            widget.setAlpha(p)
+            val target = targetY.getOrPut(widget) { widget.y }
+            widget.y = target + ((1f - p) * INTRO_DISTANCE).roundToInt()
+            widget.setAlpha(p * (piece.data?.opacity ?: 1f))
+            piece.layoutExtras(piece)
         }
         if (done && t > 0f) {
             state.introStart = 0L
-            state.introRows.keys.forEach { it.setAlpha(1f) }
+            state.introRows = emptyMap()
+            targetY.clear()
+            applyLayout(state)
         }
     }
+
+    private val targetY = WeakHashMap<AbstractWidget, Int>()
 
     private fun easeOut(t: Float): Float {
         val u = 1f - t
         return 1f - u * u * u
     }
 
-    /** Called before the title screen draws: the intro, dragging in the editor, and Quickplay's pings. */
+    // ---------------------------------------------------------------- frame hooks
+
+    /** Called before the title screen draws: the intro, the editor's drags, spinning the skin, and Quickplay's pings. */
     @JvmStatic
     fun frameStart(screen: Screen, mouseX: Int, mouseY: Int) {
         val state = states[screen] ?: return
@@ -443,88 +618,72 @@ object VanillaTitleMenu {
             }
             applyIntro(state, (System.nanoTime() - state.introStart) / 1_000_000_000f)
         }
-        val dragging = state.dragging ?: return
-        val offset = Offset(state.dragFrom.x + (mouseX - state.pressX).toFloat(), state.dragFrom.y + (mouseY - state.pressY).toFloat())
-        for ((widget, key) in state.keys) {
-            if (key != dragging) continue
-            val (x, y) = state.base[widget] ?: continue
-            widget.setPosition(x + offset.x.roundToInt(), y + offset.y.roundToInt())
+        if (state.spinning) {
+            if (PauseMenuPanel.leftDown()) {
+                preview.dragBy(-(mouseX - state.spinLastX).toFloat() * SPIN_DEGREES_PER_PIXEL)
+                state.spinLastX = mouseX.toDouble()
+            } else {
+                state.spinning = false
+                preview.endDrag()
+            }
         }
-        if (!PauseMenuPanel.leftDown()) {
-            state.dragging = null
-            MenuLayoutEditor.setOffset(state.scope, dragging, offset)
-        }
+        if (state.editing) VanillaMenuEditor.frameStart(state, mouseX, mouseY)
     }
 
-    /** Called after the title screen draws: your skin, and the outlines while editing. */
+    /** Called after the title screen draws: your skin, the open dropdown, and the editor on top. */
     @JvmStatic
     fun frameEnd(screen: Screen, graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, a: Float) {
         val state = states[screen] ?: return
-        state.preview?.let { drawPreview(screen, graphics, it) }
+        state.preview?.let { slot ->
+            val piece = state.pieces.values.firstOrNull { it.widget === slot }
+            if (slot.visible && (piece?.shown != false || state.editing)) drawPreview(screen, graphics, slot, piece?.scale ?: 1f, slot.alpha)
+            if (!state.editing && slot.visible && (state.spinning || overPreview(state, mouseX.toDouble(), mouseY.toDouble()))) {
+                graphics.requestCursor(if (state.spinning) CursorTypes.RESIZE_EW else CursorTypes.POINTING_HAND)
+            }
+        }
         // drawn again last, so the splash text and anything else can't end up on top of the open dropdown
         state.dropdown.filter { it.visible }.forEach { it.extractRenderState(graphics, mouseX, mouseY, a) }
-        if (!MenuLayoutEditor.isEditing(state.scope)) return
-        val font = Minecraft.getInstance().font
-        val groups = state.keys.entries.filter { it.key.visible }.groupBy({ it.value }, { it.key })
-        for ((key, widgets) in groups) {
-            val x0 = widgets.minOf { it.x } - 1
-            val y0 = widgets.minOf { it.y } - 1
-            val x1 = widgets.maxOf { it.x + it.width } + 1
-            val y1 = widgets.maxOf { it.y + it.height } + 1
-            val hidden = MenuLayoutEditor.isHidden(state.scope, key)
-            val color = when {
-                key == state.dragging -> 0xFFFFFFFF.toInt()
-                hidden -> 0xFFE05555.toInt()
-                else -> 0xFF3B6CFF.toInt()
-            }
-            graphics.fill(x0, y0, x1, y1, if (hidden) 0x88401010.toInt() else 0x223B6CFF)
-            graphics.outline(x0, y0, x1 - x0, y1 - y0, color)
-            if (hidden) graphics.text(font, "hidden", x0 + 2, y0 + 2, 0xFFFF8888.toInt())
-        }
-        val hint = "Drag to move. Right click to hide or show. Reset puts it all back."
-        val hintX = screen.width / 2 - font.width(hint) / 2
-        val hintY = MARGIN + SIZE + 6
-        graphics.fill(hintX - 4, hintY - 3, hintX + font.width(hint) + 4, hintY + 11, 0xC0000000.toInt())
-        graphics.text(font, hint, hintX, hintY, 0xFFFFFFFF.toInt())
+        if (state.editing) VanillaMenuEditor.draw(state, graphics, mouseX, mouseY)
     }
 
-    /** True when the click was used here (editor drag), so the screen shouldn't handle it. */
+    private fun overPreview(state: State, x: Double, y: Double): Boolean {
+        val slot = state.preview ?: return false
+        val piece = state.pieces.values.firstOrNull { it.widget === slot } ?: return false
+        return slot.visible && piece.shown && x >= piece.left && x < piece.right && y >= piece.top && y < piece.bottom
+    }
+
+    /** True when the click was used here (the editor, spinning the skin), so the screen shouldn't handle it. */
     @JvmStatic
     fun mouseClicked(screen: Screen, event: MouseButtonEvent, doubleClick: Boolean): Boolean {
         val mouseX = event.x()
         val mouseY = event.y()
-        val button = event.button()
         val state = states[screen] ?: return false
-        if (!MenuLayoutEditor.isEditing(state.scope)) {
-            // the open dropdown is on top, so it gets the click before any button under it
-            state.dropdown.firstOrNull { it.visible && it.isMouseOver(mouseX, mouseY) }?.let { return it.mouseClicked(event, doubleClick) }
-            // a click outside the open dropdown closes it
-            val open = state.dropdown.any { it.visible }
-            if (open && state.dropdown.none { it.isMouseOver(mouseX, mouseY) } && state.dropdownToggle?.isMouseOver(mouseX, mouseY) != true) {
-                state.dropdown.forEach { it.visible = false }
-            }
-            return false
+        if (state.editing) return VanillaMenuEditor.mouseClicked(state, event, doubleClick)
+        // the open dropdown is on top, so it gets the click before any button under it
+        state.dropdown.firstOrNull { it.visible && it.isMouseOver(mouseX, mouseY) }?.let { return it.mouseClicked(event, doubleClick) }
+        // a click outside the open dropdown closes it
+        val open = state.dropdown.any { it.visible }
+        if (open && state.dropdown.none { it.isMouseOver(mouseX, mouseY) } && state.dropdownToggle?.isMouseOver(mouseX, mouseY) != true) {
+            state.dropdown.forEach { it.visible = false }
         }
-        if (state.editBar.any { it.isMouseOver(mouseX, mouseY) }) return false
-        val hit = state.keys.entries.lastOrNull { (widget, _) ->
-            widget.visible &&
-                mouseX >= widget.x && mouseX < widget.x + widget.width && mouseY >= widget.y && mouseY < widget.y + widget.height
-        } ?: return true
-        if (button == 1) {
-            MenuLayoutEditor.setHidden(state.scope, hit.value, !MenuLayoutEditor.isHidden(state.scope, hit.value))
+        if (event.button() == 0 && overPreview(state, mouseX, mouseY)) {
+            if (doubleClick) {
+                preview.resetYaw()
+                return true
+            }
+            state.spinning = true
+            state.spinLastX = mouseX
+            preview.dragging = true
+            preview.spinVelocity = 0f
             return true
         }
-        state.dragging = hit.value
-        state.dragFrom = MenuLayoutEditor.offset(state.scope, hit.value)
-        state.pressX = mouseX
-        state.pressY = mouseY
-        return true
+        return false
     }
 
     // ---------------------------------------------------------------- your skin
 
     /** Holds the place of the player preview so it lays out and moves like the buttons; drawn in [frameEnd]. */
-    private class PreviewSlot(x: Int, y: Int, width: Int, height: Int) : AbstractWidget(x, y, width, height, Component.literal("Player")) {
+    internal class PreviewSlot(x: Int, y: Int, width: Int, height: Int) : AbstractWidget(x, y, width, height, Component.literal("Player")) {
         init {
             active = false
         }
@@ -532,6 +691,11 @@ object VanillaTitleMenu {
         override fun extractWidgetRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, a: Float) = Unit
 
         override fun updateWidgetNarration(output: NarrationElementOutput) = Unit
+    }
+
+    internal fun addPreviewPiece(access: ScreenAccessor, state: State, element: MenuElement): MenuPiece? {
+        if (state.preview != null) return null
+        return addPreview(access, state, 0, 0, element.w?.roundToInt() ?: 90, element.h?.roundToInt() ?: 128, group = null, type = element.type, id = element.id)
     }
 
     private val inline by lazy { InlineCanvas("title_preview") }
@@ -547,16 +711,19 @@ object VanillaTitleMenu {
         }
     }
 
-    private fun drawPreview(screen: Screen, graphics: GuiGraphicsExtractor, slot: PreviewSlot) {
-        if (screen.width <= 0 || screen.height <= 0) return
+    private fun drawPreview(screen: Screen, graphics: GuiGraphicsExtractor, slot: PreviewSlot, scale: Float, alpha: Float) {
+        if (screen.width <= 0 || screen.height <= 0 || alpha <= 0.01f) return
         val entry = preview
+        val w = slot.width * scale
+        val h = slot.height * scale
+        // the model fills the box the same way at any size, so resizing the box resizes the model
         entry.modelScale = 0.47f
-        entry.fw = slot.width / screen.width.toFloat()
-        entry.fh = slot.height / screen.height.toFloat()
+        entry.fw = w / screen.width
+        entry.fh = h / screen.height
         // the canvas draws in framebuffer pixels
-        val scale = Minecraft.getInstance().window.width / screen.width.toFloat()
+        val px = Minecraft.getInstance().window.width / screen.width.toFloat()
         inline.draw(graphics) { canvas ->
-            PlayerPreviewOffscreen.drawFaded(entry, canvas, slot.x * scale, slot.y * scale, slot.width * scale, slot.height * scale, 0f)
+            PlayerPreviewOffscreen.drawFaded(entry, canvas, slot.x * px, slot.y * px, w * px, h * px, 0f)
         }
     }
 
@@ -578,7 +745,7 @@ object VanillaTitleMenu {
         PolyPlusConfig.save()
     }
 
-    private fun textButton(label: String, tooltip: String, onPress: () -> Unit): Button =
+    internal fun textButton(label: String, tooltip: String, onPress: () -> Unit): Button =
         Button.builder(Component.literal(label)) { onPress() }.tooltip(Tooltip.create(Component.literal(tooltip))).build()
 
     private fun iconButton(sprite: String, label: String, tooltip: Boolean = true, onPress: () -> Unit): SpriteIconButton {
@@ -599,39 +766,6 @@ object VanillaTitleMenu {
             /*mc.toastManager,
             *///?}
             SystemToast.SystemToastId.PERIODIC_NOTIFICATION, Component.literal(title), Component.literal(body))
-    }
-}
-
-/** Essential has no public API for its menus, so its screens are found by name and opened if they're there. */
-internal object EssentialMenu {
-    private val LOGGER = LogManager.getLogger("PolyPlus/EssentialMenu")
-    private val CANDIDATES = listOf(
-        "gg.essential.gui.friends.SocialMenu",
-        "gg.essential.gui.wardrobe.Wardrobe",
-        "gg.essential.gui.menu.EssentialMenu",
-    )
-
-    fun open(parent: Screen) {
-        for (name in CANDIDATES) {
-            val screen = runCatching { create(name) }.onFailure { LOGGER.debug("Essential screen {} not available", name, it) }.getOrNull()
-            if (screen != null) {
-                ClientPlatform.setScreen(screen)
-                return
-            }
-        }
-        LOGGER.warn("Couldn't find an Essential menu to open")
-        VanillaTitleMenu.toast("Essential", "Couldn't open Essential's menu from here, use Essential's own buttons.")
-        ClientPlatform.setScreen(parent)
-    }
-
-    private fun create(name: String): Screen? {
-        val type = Class.forName(name)
-        for (constructor in type.constructors.sortedBy { it.parameterCount }) {
-            if (constructor.parameterTypes.any { it.isPrimitive }) continue
-            val made = runCatching { constructor.newInstance(*arrayOfNulls<Any>(constructor.parameterCount)) }.getOrNull()
-            if (made is Screen) return made
-        }
-        return null
     }
 }
 //?}
