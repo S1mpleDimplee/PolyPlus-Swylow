@@ -76,6 +76,7 @@ internal object LobbyPlayerMenu {
     var targetUuid by mutableStateOf<String?>(null)
     var targetName by mutableStateOf("")
     var hideName by mutableStateOf(LobbySceneStore.hideName())
+    var hidden by mutableStateOf(LobbySceneStore.hideSelf())
     var pose by mutableStateOf(LobbySceneStore.pose())
 
     /** The player whose profile popup is open (uuid to name), or null. */
@@ -96,6 +97,7 @@ internal object LobbyPlayerMenu {
         targetUuid = uuid
         targetName = name
         hideName = if (uuid == null) LobbySceneStore.hideName() else LobbySceneStore.nameHidden(uuid)
+        hidden = if (uuid == null) LobbySceneStore.hideSelf() else LobbySceneStore.playerHidden(uuid)
         pose = if (uuid == null) LobbySceneStore.pose() else LobbySceneStore.poseOf(uuid)
     }
 
@@ -124,10 +126,18 @@ internal object LobbyPlayerMenu {
         if (uuid == null) LobbySceneStore.setHideName(hideName) else LobbySceneStore.setNameHidden(uuid, hideName)
     }
 
+    /** Hides or shows the selected character, from the toggle in the animation panel. */
+    fun toggleHidden() {
+        hidden = !hidden
+        val uuid = targetUuid
+        if (uuid == null) LobbySceneStore.setHideSelf(hidden) else LobbySceneStore.setPlayerHidden(uuid, targetName, hidden)
+    }
+
     /** Hides the selected character from the lobby; it comes back from Customize your lobby > Characters. */
     fun hidePlayer() {
         val uuid = targetUuid
         if (uuid == null) LobbySceneStore.setHideSelf(true) else LobbySceneStore.setPlayerHidden(uuid, targetName, true)
+        hidden = true
         if (posesOpen) closePoses()
     }
 
@@ -343,6 +353,7 @@ private fun PosePanel() {
         PanelPageColumn {
             PanelSection(null, divider = false) {
                 PanelToggle("Hide username", LobbyPlayerMenu.hideName, { LobbyPlayerMenu.toggleName() })
+                PanelToggle("Hide player", LobbyPlayerMenu.hidden, { LobbyPlayerMenu.toggleHidden() })
             }
             PanelSection("Animation") {
                 PanelHint("Hover one to preview it on the character, click to keep it.")

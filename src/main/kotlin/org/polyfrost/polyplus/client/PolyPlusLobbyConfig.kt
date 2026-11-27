@@ -12,6 +12,7 @@ import org.polyfrost.polyplus.client.gui.widgets.WidgetMigration
 import org.polyfrost.polyplus.client.lobby.LobbyCaptureFrequency
 import org.polyfrost.polyplus.client.lobby.LobbyCaptureView
 import org.polyfrost.polyplus.client.lobby.LobbyMusic
+import org.polyfrost.polyplus.client.lobby.LobbyPacks
 import org.polyfrost.polyplus.client.lobby.LobbyReveal
 import org.polyfrost.polyplus.client.lobby.LobbySceneStore
 import org.polyfrost.polyplus.client.lobby.LobbyTime
@@ -160,6 +161,13 @@ object PolyPlusLobbyConfig : Config(
 
     @JvmStatic
     @Switch(
+        title = "Require Texture Packs",
+        description = "Only show scenes when the texture packs they were captured with are on. Turn off to use any scene with whatever packs you have.",
+    )
+    var requireScenePacks = true
+
+    @JvmStatic
+    @Switch(
         title = "Any Terrain",
         description = "Capture scenes on hills, slopes and uneven ground too, and let you and your party stand at different heights.",
         subcategory = "3D Lobby",
@@ -224,6 +232,7 @@ object PolyPlusLobbyConfig : Config(
         migrateWidgets()
         LobbySceneStore.captureLimit = sceneCaptureLimit.roundToInt()
         addCallback("sceneCaptureLimit") { LobbySceneStore.captureLimit = sceneCaptureLimit.roundToInt() }
+        addCallback("requireScenePacks") { LobbyPacks.recheck() }
         hideIf("lobbyMusicVolume") { lobbyMusic == LobbyMusic.OFF || lobbyMusic == LobbyMusic.MINECRAFT }
         hideIf("muteLobbyMusicUnfocused") { lobbyMusic == LobbyMusic.OFF || lobbyMusic == LobbyMusic.MINECRAFT }
         hideIf("quitClickTwice") { quitWithoutConfirmation }

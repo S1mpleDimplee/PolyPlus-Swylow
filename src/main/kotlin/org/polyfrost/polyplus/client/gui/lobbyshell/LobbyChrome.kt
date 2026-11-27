@@ -13,6 +13,7 @@ import org.polyfrost.polyplus.client.gui.vanillamenu.LobbyElementPanelHost
 import org.polyfrost.polyplus.client.gui.vanillamenu.LobbyHudMenuHost
 import org.polyfrost.polyplus.client.gui.vanillamenu.MenuEditorBar
 import org.polyfrost.polyplus.client.gui.vanillamenu.MenuLayoutEditor
+import org.polyfrost.polyplus.client.gui.vanillamenu.MenuLayoutStore
 import androidx.compose.ui.zIndex
 import org.polyfrost.oneconfig.api.ui.v1.a11y.Motion
 import org.polyfrost.oneconfig.api.ui.v1.components.PlayerHead
@@ -368,6 +369,7 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
                 val widgetScope = remember(lobby, screen, stackWidth) { LobbyWidgetScope(lobby, screen, stackWidth) }
                 if (widgetRoom > 0.dp) {
                     val editing = MenuLayoutEditor.isEditing("lobby")
+                    MenuLayoutStore.revision.intValue
                     // the moved / selected widget draws above the others (and the column above the chat and player bar)
                     fun onTop(id: String) = id in MenuLayoutEditor.dragIds || MenuLayoutEditor.selection[MenuLayoutEditor.key("lobby", id)] == true
                     val columnOnTop = editing && (MenuLayoutEditor.dragIds + MenuLayoutEditor.selection.filterValues { it }.keys.map { it.substringAfter('/') })
@@ -375,7 +377,10 @@ private fun BoxScope.LobbyChrome(lobby: LobbyShell, screen: Screen, feed: LobbyF
                     WidgetColumn(
                         WidgetSurface.LOBBY, stackWidth, widgetRoom, { panel(it) }, widgetScope,
                         Modifier.padding(bottom = STACK_ROW_GAP).zIndex(if (columnOnTop) 2f else 0f),
-                        scroll = !editing,
+                        // a scaled or moved widget draws outside the column, and the scroll container would cut it off
+                        scroll = !editing && MenuLayoutStore.scope("lobby").elements.none {
+                            it.id.startsWith("widget.") && (it.scale != 1f || it.x != 0f || it.y != 0f)
+                        },
                     ) { widget, place, frame ->
                         // every widget is its own piece in the menu editor (move / scale / hide), new ones too
                         val id = "widget." + widget.id
@@ -552,10 +557,13 @@ private fun NavbarRow(lobby: LobbyShell, screen: Screen, unread: Boolean) {
         }
         Box(Modifier.weight(1f).a11yRegion(A11yRegion.Nav), contentAlignment = Alignment.Center) {
             val selectedPage = visible.firstOrNull { it.activeOn(lobby.page) }?.page ?: lobby.page
+            MenuLayoutStore.revision.intValue
+            val tabsMoved = MenuLayoutStore.scope("lobby").elements.any { it.id.startsWith("nav.tab.") && (it.x != 0f || it.y != 0f) }
             Row(horizontalArrangement = Arrangement.spacedBy(NAV_TAB_GAP), verticalAlignment = Alignment.CenterVertically) {
                 visible.forEachIndexed { i, tab ->
                     key(tab.page) {
-                        EditableBlock("lobby", "nav.tab." + tab.page.name.lowercase(), tab.label + " tab") {
+                        // a hidden tab keeps its room once tabs are moved, so the others stay where they were put
+                        EditableBlock("lobby", "nav.tab." + tab.page.name.lowercase(), tab.label + " tab", keepSpace = tabsMoved) {
                             NavTabRow(listOf(items[i]), selectedPage, lobby::show)
                         }
                     }

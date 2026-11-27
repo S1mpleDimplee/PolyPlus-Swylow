@@ -203,7 +203,15 @@ private val Hidden = Color(0xFFE05555)
  * (move, with its group), right clicks (more) and the corner handle (scale). [group] puts it in a group by default.
  */
 @Composable
-fun EditableBlock(scope: String, id: String, label: String, modifier: Modifier = Modifier, group: String? = null, content: @Composable () -> Unit) {
+fun EditableBlock(
+    scope: String,
+    id: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    group: String? = null,
+    keepSpace: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     MenuLayoutStore.revision.intValue
     val editing = MenuLayoutEditor.isEditing(scope)
     val element = MenuLayoutStore.element(scope, id)
@@ -213,7 +221,18 @@ fun EditableBlock(scope: String, id: String, label: String, modifier: Modifier =
         MenuLayoutEditor.labels[MenuLayoutEditor.key(scope, id)] = label
         onDispose { MenuLayoutEditor.blocks[scope]?.remove(id) }
     }
-    if (!shown && !editing) return
+    if (!shown && !editing) {
+        // measured but not placed: keeps the room it had in the editor (so moved neighbours stay put), not drawn or clickable
+        if (keepSpace) {
+            Box(
+                modifier.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {}
+                },
+            ) { content() }
+        }
+        return
+    }
     val density = LocalDensity.current
     val dragging = id in MenuLayoutEditor.dragIds
     val base = Offset(element?.x ?: 0f, element?.y ?: 0f)

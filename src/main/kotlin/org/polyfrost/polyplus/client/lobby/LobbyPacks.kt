@@ -19,6 +19,7 @@ import net.minecraft.server.packs.repository.PackSource
 /*import net.minecraft.client.resource.pack.ResourcePacks
 *///?}
 import org.polyfrost.polyplus.client.PolyPlusClient
+import org.polyfrost.polyplus.client.PolyPlusLobbyConfig
 import org.polyfrost.polyplus.client.party.PartyScene
 import java.io.File
 import java.io.RandomAccessFile
@@ -77,6 +78,11 @@ object LobbyPacks {
     var revision by mutableIntStateOf(0)
         private set
 
+    /** Re-checks every scene, e.g. after "Require Texture Packs" is switched. */
+    fun recheck() {
+        revision++
+    }
+
     fun activeIds(): List<String> = selected().map { it.id }
 
     fun changed(): Boolean {
@@ -98,7 +104,7 @@ object LobbyPacks {
     }
 
     fun problem(packs: List<LobbyScenePack>, version: String): String? {
-        if (packs.isEmpty()) return null
+        if (packs.isEmpty() || !PolyPlusLobbyConfig.requireScenePacks) return null
         if (version.isNotEmpty() && version != PartyScene.mcVersion) return "Made with ${packs.first().name} on $version"
         val active = selected()
         val spots = packs.map { need -> active.indexOfFirst { same(need, it.id) } }
